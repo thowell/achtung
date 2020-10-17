@@ -23,41 +23,6 @@ LEFT_KEYS_str = ['<-', 'a', 'v', 'k']
 RIGHT_KEYS = [pygame.K_RIGHT, pygame.K_s, pygame.K_b, pygame.K_l]
 RIGHT_KEYS_str = ['->','s','b','l']
 
-def main(argv):
-    print('Achtung Die Kurve!')
-
-    # input number of players
-    if len(argv) > 1:
-        _n = int(argv[1])
-        if _n < 5 and _n > 0:
-            n = _n
-        else:
-            n = 2
-    else:
-        n = 2
-
-    print('  %i players' % (n))
-    for i in range(n):
-        print('     [%s] (%s,%s)' % (COLORS_str[i],LEFT_KEYS_str[i],RIGHT_KEYS_str[i]))
-
-    # setup
-    pygame.init()
-    env = Environment()
-    players = init_players(env,n)
-
-    while True:
-        rungame(env,players)
-
-class Environment():
-    def __init__(self):
-        self.speed = 10 
-        self.window_width = 500 
-        self.window_height = 500 
-        self.window_buffer = 1
-        self.fps_clock = pygame.time.Clock()
-        self.screen = pygame.display.set_mode((500,500))
-        self.display = pygame.Surface(self.screen.get_size())
-
 class Player():
     def __init__(self):
         self.active = True
@@ -68,23 +33,25 @@ class Player():
         self.y = 0
         self.angle = 0
 
-    def gen(self,env):
-        self.x = random.randrange(50, env.window_width - 50)
-        self.y = random.randrange(50, env.window_height - 50)
+    def gen(self, game):
+        self.x = random.randrange(50, game.window_width - 50)
+        self.y = random.randrange(50, game.window_height - 50)
         self.angle = random.randrange(0, 360)
 
     def move(self):
         self.x += int(self.radius * 2 * cos(radians(self.angle)))
         self.y += int(self.radius * 2 * sin(radians(self.angle)))
 
-    def draw(self,env):
-        pygame.gfxdraw.aacircle(env.display, self.x, self.y, self.radius, self.color)
-        pygame.gfxdraw.filled_circle(env.display, self.x, self.y, self.radius, self.color)
+    def draw(self, game):
+        pygame.gfxdraw.aacircle(game.display, self.x,
+                                self.y, self.radius, self.color)
+        pygame.gfxdraw.filled_circle(
+            game.display, self.x, self.y, self.radius, self.color)
 
-    def collision(self,env):
-        if (self.x > env.window_width-env.window_buffer or self.x < env.window_buffer or
-            self.y > env.window_height-env.window_buffer or self.y < env.window_buffer or
-            env.display.get_at((self.x, self.y)) != BLACK):
+    def collision(self, game):
+        if (self.x > game.window_width-game.window_buffer or self.x < game.window_buffer or
+            self.y > game.window_height-game.window_buffer or self.y < game.window_buffer or
+                game.display.get_at((self.x, self.y)) != BLACK):
             self.active = False
             return True
         else:
@@ -96,102 +63,201 @@ class Player():
         elif self.angle >= 360:
             self.angle -= 360
 
+class Achtung():
+    def __init__(self,n):
+        # pygame
+        self.speed = 10 
+        self.window_width = 500 
+        self.window_height = 500 
+        self.window_buffer = 1
+        self.fps_clock = pygame.time.Clock()
+        self.screen = pygame.display.set_mode((500,500))
+        self.display = pygame.Surface(self.screen.get_size())
+        self.render = True
+        self.cache_frames = False
 
-def init_players(env,n):
-    # generate players
-    players = [Player() for i in range(n)]
+        # game
+        self.game_over = True
+        self.first_step = True
+        self.n = n
+        self.players = self.init_players(n)
+        self.players_active = len(self.players)
+        self.rnd = 1
+        self.frame = 1
+        self.games = 1
+        self.action = "left"
 
-    for i in range(n):
-        players[i].gen(env)
-        players[i].color = COLORS[i]
-        players[i].left_key = LEFT_KEYS[i]
-        players[i].right_key = RIGHT_KEYS[i]
+    def init_players(self,n):
+        # generate players
+        players = [Player() for i in range(n)]
 
-    return players
-
-def reset_colors(players):
-    n = len(players)
-    for i in range(n):
-        players[i].color = COLORS[i]
-        
-def rungame(env,players):
-    env.display.fill(BLACK)
-
-    first = True
-    run = True
-    n = len(players)
-    players_active = n
-
-    max_score = 100
-    rnd = 1
-
-    while run:
-        if first : print('Round %i' % (rnd))
-        # reset players' colors
-        reset_colors(players)
-
-        # generating random holes
-        hole = random.randrange(1, 20)
         for i in range(n):
-            if hole == i+5 and players[i].active:
-                players[i].move()
-                players[i].color = BLACK
-        
-        # update players
-        for i in range(n):  
-            if players[i].active and ((players_active > 1 and n > 1) or (players_active > 0 and n == 1)):
-                players[i].angle_reset()
+            players[i].gen(self)
+            players[i].color = COLORS[i]
+            players[i].left_key = LEFT_KEYS[i]
+            players[i].right_key = RIGHT_KEYS[i]
+
+        return players
+
+    def reset_colors(self):
+        for i in range(self.n):
+            self.players[i].color = COLORS[i]
+
+    def reset(self):
+        self.game_over = False
+        self.first_step = True
+        self.players_active = self.n
+        self.frame = 1
+
+        for i in range(self.n):
+            self.players[i].gen(self)
+            self.players[i].active = True
+
+        # pygame.time.wait(1000)
+        self.display.fill(BLACK)
+    
+        return self.display
+  
+    def check_first_step(self):
+        if self.first_step:
+            print('Round %i' % (self.rnd))
+            self.first_step = False
+
+    def holes(self):
+        hole = random.randrange(1, 20)
+        for i in range(self.n):
+            if hole == i+5 and self.players[i].active:
+                self.players[i].move()
+                self.players[i].color = BLACK
+
+    def update_players(self,actions):
+         # reset players' colors
+        self.reset_colors()
+
+        # random holes
+        self.holes()
+
+        for i in range(self.n):
+            # actions
+            if actions[i] == "left":
+                self.players[i].angle -= 10
+            elif actions[i] == "right":
+                self.players[i].angle += 10
+            else:
+                None
+
+            # update
+            if self.players[i].active and ((self.players_active > 1 and self.n > 1) or (self.players_active > 0 and self.n == 1)):
+                self.players[i].angle_reset()
 
                 # checking if someone fails
-                if players[i].collision(env):
-                    players_active -= 1
+                if self.players[i].collision(self):
+                    self.players_active -= 1
 
-                players[i].draw(env)
-                players[i].move()
+                self.players[i].draw(self)
+                self.players[i].move()
+    
+    def round_over(self):
+        if (self.players_active == 1 and self.n > 1) or (self.players_active == 0 and self.n == 1):
+            self.game_over = True
+            self.rnd += 1
+            for (i,p) in enumerate(self.players):
+                if p.active == True:
+                    print(" " + COLORS_str[i] + " wins")
 
-        for event in pygame.event.get():
+    def rewards(self):
+        return [1.0*self.players[i].active for i in range(self.n)]
+        
+    def step(self,actions):
+
+        # check first step
+        self.check_first_step()
+
+        # update players
+        self.update_players(actions)
+
+        # update screen
+        if self.render:  self.screen.blit(self.display, (0, 0))
+        pygame.display.update()
+
+        # check round over
+        self.round_over()
+
+        # game frames
+        self.fps_clock.tick(self.speed)
+        self.frame += 1
+
+        # cache frames
+        if self.cache_frames:
+            filename = "images/{}_{}.JPG"
+            pygame.image.save(game.display, filename.format(game.rnd,game.frame))
+
+        return self.display, self.rewards(), self.game_over, {}
+
+def number_players(argv):
+    # input number of players
+    if len(argv) > 1:
+        _n = int(argv[1])
+        if _n < 5 and _n > 0:
+            n = _n
+        else:
+            print('Invalid number of players, setting to: 2')
+            n = 2
+    else:
+        n = 2
+
+    print('  %i players' % (n))
+    for i in range(n):
+        print('     [%s] (%s,%s)' %
+              (COLORS_str[i], LEFT_KEYS_str[i], RIGHT_KEYS_str[i]))
+
+    return n
+
+def keyboard_input(game,actions):
+    for event in pygame.event.get():
             if event.type == QUIT:
                 shutdown()
             elif event.type == KEYDOWN:
                 if event.key == K_ESCAPE:
                     shutdown()
 
-        # input from keyboard
-        keys = pygame.key.get_pressed()
-        for i in range(n):
-            if keys[players[i].left_key]:
-                players[i].angle -= 10
-            if keys[players[i].right_key]:
-                players[i].angle += 10
+    keys = pygame.key.get_pressed()
+    for i in range(game.n):
+        if keys[game.players[i].left_key]:
+            actions[i] = "left"
+        if keys[game.players[i].right_key]:
+            actions[i] = "right"
 
-        env.screen.blit(env.display, (0, 0))
-        pygame.display.update()
+def agent(n):
+    return ["none" for i in range(n)]
+    
 
-        # check round over
-        if (players_active == 1 and n > 1) or (players_active == 0 and n == 1):
-            for i in range(n):
-                if players[i].active:
-                    players[i].score += 1
-                    print(' [%s] wins' %(COLORS_str[i]))
+def main(argv):
+    print('Achtung Die Kurve!')
 
-            pygame.time.wait(1000)
-            env.display.fill(BLACK)
+    # get number of players
+    n = number_players(argv)
 
-            first = True
-            players_active = n
+    # setup
+    done = True
+    pygame.init()
+    game = Achtung(n)
 
-            for i in range(n):
-                players[i].gen(env)
-                players[i].active = True
+    # game
+    while True:
+        if done:
+            obs = game.reset()
 
-            rnd += 1
-            continue
+        # agent
+        actions = agent(game.n)
 
-        if first:
-            pygame.time.wait(1500)
-            first = False
+        # keyboard input override
+        keyboard_input(game,actions)
 
-        env.fps_clock.tick(env.speed)
+        # step
+        obs, rewards, done, info = game.step(actions)
+        # reward = rewards[0]
+        # print("reward: ", reward)
 
 if __name__ == '__main__':
     main(sys.argv)
