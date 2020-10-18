@@ -12,10 +12,10 @@ decay_rate = 0.99  # decay factor for RMSProp leaky sum of grad^2
 resume = False  # resume from previous checkpoint?
 render = True
 
-n_obs = 4
+n_obs = 4 # number of observations used for current "state"
 
 # model initialization
-D = 200 * 200 * 3 * n_obs # input dimensionality
+D = WINDOW_HEIGHT * WINDOW_WIDTH * 3 * n_obs # input dimensionality
 if resume:
   model = pickle.load(open('save.p', 'rb'))
 else:
@@ -75,7 +75,6 @@ def policy_backward(eph, epdlogp):
 pygame.init()
 env = Achtung(1)
 observation = env.reset()
-prev_x = None  # used in computing the difference frame
 xs, hs, dlogps, drs = [], [], [], []
 running_reward = None
 reward_sum = 0

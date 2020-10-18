@@ -8,8 +8,9 @@ from math import *
 from pygame.locals import *
 
 # game size
-WINDOW_HEIGHT = 200
-WINDOW_WIDTH = 200
+WINDOW_HEIGHT = 100
+WINDOW_WIDTH = 100
+WINDOW_BORDER = 10
 
 # colors
 BLACK = (0, 0, 0)
@@ -32,14 +33,14 @@ class Player():
         self.active = True
         self.color = None
         self.score = 0
-        self.radius = 3
+        self.radius = 2
         self.x = 0
         self.y = 0
         self.angle = 0
 
     def gen(self, game):
-        self.x = random.randrange(50, game.window_width - 50)
-        self.y = random.randrange(50, game.window_height - 50)
+        self.x = random.randrange(WINDOW_BORDER, game.window_width - WINDOW_BORDER)
+        self.y = random.randrange(WINDOW_BORDER, game.window_height - WINDOW_BORDER)
         self.angle = random.randrange(0, 360)
 
     def move(self):
@@ -117,7 +118,7 @@ class Achtung():
         self.game_over = False
         self.first_step = True
         self.players_active = self.n
-        self.frame = 1
+        self.frame = 0
 
         for i in range(self.n):
             self.players[i].gen(self)
