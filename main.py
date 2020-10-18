@@ -7,6 +7,10 @@ import pygame.gfxdraw
 from math import *
 from pygame.locals import *
 
+# game size
+WINDOW_HEIGHT = 200
+WINDOW_WIDTH = 200
+
 # colors
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
@@ -67,13 +71,13 @@ class Achtung():
     def __init__(self,n):
         # pygame
         self.speed = 10 
-        self.window_width = 500 
-        self.window_height = 500 
+        self.window_width = WINDOW_WIDTH
+        self.window_height = WINDOW_HEIGHT
         self.window_buffer = 1
         self.fps_clock = pygame.time.Clock()
-        self.screen = pygame.display.set_mode((500,500))
+        self.screen = pygame.display.set_mode((WINDOW_WIDTH,WINDOW_HEIGHT))
         self.display = pygame.Surface(self.screen.get_size())
-        self.render = True
+        self.render_game = True
         self.cache_frames = False
 
         # game
@@ -86,6 +90,12 @@ class Achtung():
         self.frame = 1
         self.games = 1
         self.action = "left"
+
+    def render(self):
+        self.screen.blit(self.display, (0, 0))
+    
+    def state(self):
+        return pygame.surfarray.array3d(self.display)
 
     def init_players(self,n):
         # generate players
@@ -116,7 +126,7 @@ class Achtung():
         # pygame.time.wait(1000)
         self.display.fill(BLACK)
     
-        return self.display
+        return self.state()
   
     def check_first_step(self):
         if self.first_step:
@@ -139,9 +149,9 @@ class Achtung():
 
         for i in range(self.n):
             # actions
-            if actions[i] == "left":
+            if actions[i] == 1:
                 self.players[i].angle -= 10
-            elif actions[i] == "right":
+            elif actions[i] == 2:
                 self.players[i].angle += 10
             else:
                 None
@@ -177,7 +187,7 @@ class Achtung():
         self.update_players(actions)
 
         # update screen
-        if self.render:  self.screen.blit(self.display, (0, 0))
+        if self.render_game:  self.render()
         pygame.display.update()
 
         # check round over
@@ -190,9 +200,9 @@ class Achtung():
         # cache frames
         if self.cache_frames:
             filename = "images/{}_{}.JPG"
-            pygame.image.save(game.display, filename.format(game.rnd,game.frame))
+            pygame.image.save(self.display, filename.format(self.rnd,self.frame))
 
-        return self.display, self.rewards(), self.game_over, {}
+        return self.state(), self.rewards(), self.game_over, {}
 
 def number_players(argv):
     # input number of players
@@ -224,12 +234,12 @@ def keyboard_input(game,actions):
     keys = pygame.key.get_pressed()
     for i in range(game.n):
         if keys[game.players[i].left_key]:
-            actions[i] = "left"
+            actions[i] = 1
         if keys[game.players[i].right_key]:
-            actions[i] = "right"
+            actions[i] = 2
 
 def agent(n):
-    return ["none" for i in range(n)]
+    return [0 for i in range(n)]
     
 
 def main(argv):
@@ -256,7 +266,9 @@ def main(argv):
 
         # step
         obs, rewards, done, info = game.step(actions)
-        # reward = rewards[0]
+        
+        reward = rewards[0]
+        action = actions[0]
         # print("reward: ", reward)
 
 if __name__ == '__main__':
