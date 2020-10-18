@@ -70,6 +70,8 @@ class Player():
 
 class Achtung():
     def __init__(self,n):
+        print('Achtung Die Kurve!')
+
         # pygame
         self.speed = 10 
         self.window_width = WINDOW_WIDTH
@@ -90,7 +92,7 @@ class Achtung():
         self.rnd = 1
         self.frame = 1
         self.games = 1
-        self.action = "left"
+        self.verbose = True
 
     def render(self):
         self.screen.blit(self.display, (0, 0))
@@ -244,8 +246,6 @@ def agent(n):
     
 
 def main(argv):
-    print('Achtung Die Kurve!')
-
     # get number of players
     n = number_players(argv)
 
