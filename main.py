@@ -8,8 +8,8 @@ from math import *
 from pygame.locals import *
 
 # game size
-WINDOW_HEIGHT = 100
-WINDOW_WIDTH = 100
+WINDOW_HEIGHT = 250
+WINDOW_WIDTH = 250
 WINDOW_BORDER = 10
 
 # colors
@@ -72,8 +72,10 @@ class Achtung():
     def __init__(self,n):
         print('Achtung Die Kurve!')
 
+        pygame.display.set_caption('Achtung Die Kurve!')
+        
         # pygame
-        self.speed = 10 
+        self.speed = 12
         self.window_width = WINDOW_WIDTH
         self.window_height = WINDOW_HEIGHT
         self.window_buffer = 1
@@ -93,12 +95,17 @@ class Achtung():
         self.frame = 1
         self.games = 1
         self.verbose = True
+        self.current_player = 0
+        self.state_cache = pygame.surfarray.array3d(self.display)
 
     def render(self):
         self.screen.blit(self.display, (0, 0))
     
     def state(self):
-        return pygame.surfarray.array3d(self.display)
+        if self.current_player == 0:
+            self.state_cache = pygame.surfarray.array3d(self.display)
+
+        return self.state_cache
 
     def init_players(self,n):
         # generate players
@@ -112,14 +119,14 @@ class Achtung():
 
         return players
 
-    def reset_colors(self):
-        for i in range(self.n):
-            self.players[i].color = COLORS[i]
+    def reset_color(self):
+        self.players[self.current_player].color = COLORS[self.current_player]
 
     def reset(self):
         self.game_over = False
         self.first_step = True
         self.players_active = self.n
+        self.current_player = 0
         self.frame = 0
 
         for i in range(self.n):
@@ -136,76 +143,109 @@ class Achtung():
             print('Round %i' % (self.rnd))
             self.first_step = False
 
-    def holes(self):
+    def hole(self):
         hole = random.randrange(1, 20)
-        for i in range(self.n):
-            if hole == i+5 and self.players[i].active:
-                self.players[i].move()
-                self.players[i].color = BLACK
+        i = self.current_player
+        if hole == i+5 and self.players[i].active:
+            self.players[i].move()
+            self.players[i].color = BLACK
 
-    def update_players(self,actions):
+    def update_player(self,action):
+        # current player
+        i = self.current_player
+        player = self.players[i]
+
          # reset players' colors
-        self.reset_colors()
+        self.reset_color()
 
-        # random holes
-        self.holes()
+        # random hole
+        self.hole()
 
-        for i in range(self.n):
-            # actions
-            if actions[i] == 1:
-                self.players[i].angle -= 10
-            elif actions[i] == 2:
-                self.players[i].angle += 10
-            else:
-                None
+        # action
+        if action == 0:
+            player.angle -= 10
+        elif action == 1:
+            player.angle += 10
+        else:
+            None
 
-            # update
-            if self.players[i].active and ((self.players_active > 1 and self.n > 1) or (self.players_active > 0 and self.n == 1)):
-                self.players[i].angle_reset()
+        # update
+        if player.active and ((self.players_active > 1 and self.n > 1) or (self.players_active > 0 and self.n == 1)):
+            player.angle_reset()
 
-                # checking if someone fails
-                if self.players[i].collision(self):
-                    self.players_active -= 1
+            # checking if someone fails
+            if player.collision(self):
+                self.players_active -= 1
 
-                self.players[i].draw(self)
-                self.players[i].move()
-    
+            player.draw(self)
+            player.move()
+
     def round_over(self):
         if (self.players_active == 1 and self.n > 1) or (self.players_active == 0 and self.n == 1):
             self.game_over = True
             self.rnd += 1
-            for (i,p) in enumerate(self.players):
-                if p.active == True:
-                    print(" " + COLORS_str[i] + " wins")
+            
+            # for (i,p) in enumerate(self.players):
+            #     if p.active == True:
+            #         print(" " + COLORS_str[i] + " wins")
+    
+    def reward(self):
+        if self.game_over == False:
+            return 1.0 # nominal reward
+        else:
+            if self.players[self.current_player].active:
+                return 10.0 # winning reward
+            else:
+                return 0.0 # losing reward
+    
+    def to_play(self):
+        return self.current_player
 
-    def rewards(self):
-        return [1.0*self.players[i].active for i in range(self.n)]
+    def legal_actions(self):
+        return range(self.n)
         
-    def step(self,actions):
+    def step(self,action):
+
+         # current state
+        state = self.state()
 
         # check first step
         self.check_first_step()
 
-        # update players
-        self.update_players(actions)
-
-        # update screen
-        if self.render_game:  self.render()
-        pygame.display.update()
+        # update current player
+        self.update_player(action)
 
         # check round over
         self.round_over()
 
+        # get reward
+        reward = self.reward()
+
+        # check for done
+        if self.game_over and self.current_player == self.n-1:
+            done = True
+        else:
+            done = False
+
         # game frames
-        self.fps_clock.tick(self.speed)
-        self.frame += 1
+        if self.current_player == self.n-1:  
+            if self.render_game: 
+                self.render()
+                self.fps_clock.tick(self.speed)
+            self.frame += 1
+        pygame.display.update()
 
         # cache frames
         if self.cache_frames:
             filename = "images/{}_{}.JPG"
             pygame.image.save(self.display, filename.format(self.rnd,self.frame))
 
-        return self.state(), self.rewards(), self.game_over, {}
+        # update current player
+        self.current_player += 1
+        if self.current_player >= self.n:
+            self.current_player = 0
+
+        return state, reward, done, {}
 
 def number_players(argv):
     # input number of players
@@ -226,24 +266,25 @@ def number_players(argv):
 
     return n
 
-def keyboard_input(game,actions):
+def keyboard_input(game):
     for event in pygame.event.get():
-            if event.type == QUIT:
+        if event.type == QUIT:
+            shutdown()
+        elif event.type == KEYDOWN:
+            if event.key == K_ESCAPE:
                 shutdown()
-            elif event.type == KEYDOWN:
-                if event.key == K_ESCAPE:
-                    shutdown()
+
+    action = -1
+    i = game.current_player
 
     keys = pygame.key.get_pressed()
-    for i in range(game.n):
-        if keys[game.players[i].left_key]:
-            actions[i] = 1
-        if keys[game.players[i].right_key]:
-            actions[i] = 2
 
-def agent(n):
-    return [0 for i in range(n)]
-    
+    if keys[game.players[i].left_key]:
+        action = 0
+    if keys[game.players[i].right_key]:
+        action = 1
+
+    return action
 
 def main(argv):
     # get number of players
@@ -257,20 +298,22 @@ def main(argv):
     # game
     while True:
         if done:
+            for (i,p) in enumerate(game.players):
+                if p.active == True:
+                    print(" " + COLORS_str[i] + " wins")
             obs = game.reset()
 
-        # agent
-        actions = agent(game.n)
+        for i in range(game.n):
+            # keyboard input
+            action = keyboard_input(game)
 
-        # keyboard input override
-        keyboard_input(game,actions)
-
-        # step
-        obs, rewards, done, info = game.step(actions)
-        
-        reward = rewards[0]
-        action = actions[0]
-        # print("reward: ", reward)
+            # step
+            obs, reward, done, info = game.step(action)
+            
+            print("player: %s" % COLORS_str[i])
+            print("     reward: ", reward)
+            print("     action: ", action)
+            print("     frame: ", game.frame)
 
 if __name__ == '__main__':
     main(sys.argv)

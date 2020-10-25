@@ -9,7 +9,7 @@ batch_size = 10  # every how many episodes to do a param update?
 learning_rate = 1e-4
 gamma = 0.99  # discount factor for reward
 decay_rate = 0.99  # decay factor for RMSProp leaky sum of grad^2
-resume = True  # resume from previous checkpoint?
+resume = False  # resume from previous checkpoint?
 render = True
 
 n_obs = 4 # number of observations used for current "state"
@@ -47,9 +47,9 @@ def discount_rewards(r):
   discounted_r = np.zeros_like(r)
   running_add = 0
   for t in reversed(range(0, r.size)):
-    if r[t] != 0:
-      # reset the sum, since this was a game boundary (pong specific!)
-      running_add = 0
+    # if r[t] != 0:
+    #   # reset the sum, since this was a game boundary (pong specific!)
+    #   running_add = 0
     running_add = running_add * gamma + r[t]
     discounted_r[t] = running_add
   return discounted_r
@@ -60,7 +60,7 @@ def policy_forward(x):
   h[h < 0] = 0  # ReLU nonlinearity
   logp = np.dot(model['W2'], h)
   p = sigmoid(logp)
-  return p, h  # return probability of taking action 2, and hidden state
+  return p, h  # return probability of taking action 1, and hidden state
 
 
 def policy_backward(eph, epdlogp):
@@ -74,6 +74,7 @@ def policy_backward(eph, epdlogp):
 # setup
 pygame.init()
 env = Achtung(1)
+# env.speed = 0 # set to zero for training (i.e., no frame delay)
 observation = env.reset()
 xs, hs, dlogps, drs = [], [], [], []
 running_reward = None
@@ -93,19 +94,17 @@ while True:
 
     # forward the policy network and sample an action from the returned probability
     aprob, h = policy_forward(x)
-    action = 1 if np.random.uniform() < aprob else 2  # roll the dice!
-    actions = [action]
+    action = 0 if np.random.uniform() < aprob else 1  # roll the dice!
 
     # record various intermediates (needed later for backprop)
     xs.append(x)  # observation
     hs.append(h)  # hidden state
-    y = 1 if action == 1 else 0  # a "fake label"
+    y = 1 if action == 0 else 0  # a "fake label"
     # grad that encourages the action that was taken to be taken (see http://cs231n.github.io/neural-networks-2/#losses if confused)
     dlogps.append(y - aprob)
 
     # step the environment and get new measurements
-    observation, rewards, done, info = env.step(actions)
-    reward = rewards[0]
+    observation, reward, done, info = env.step(action)
     reward_sum += reward
 
     # record reward (has to be done after we call step() to get reward for previous action)
