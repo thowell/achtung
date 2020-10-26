@@ -290,8 +290,8 @@ def main(argv):
     done = True
     pygame.init()
     game = Achtung(n)
-    game.cache_frames = True
-    
+    # game.cache_frames = True
+
     # game
     while True:
         if done:

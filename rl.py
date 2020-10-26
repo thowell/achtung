@@ -9,7 +9,7 @@ batch_size = 10  # every how many episodes to do a param update?
 learning_rate = 1e-4
 gamma = 0.99  # discount factor for reward
 decay_rate = 0.99  # decay factor for RMSProp leaky sum of grad^2
-resume = False  # resume from previous checkpoint?
+resume = True  # resume from previous checkpoint?
 render = True
 
 n_obs = 4 # number of observations used for current "state"
@@ -76,7 +76,8 @@ def policy_backward(eph, epdlogp):
 # setup
 pygame.init()
 env = Achtung(1)
-# env.speed = 0 # set to zero for training (i.e., no frame delay)
+env.speed = 0 # set to zero for training (i.e., no frame delay)
+env.render_game = render
 observation = env.reset()
 xs, hs, dlogps, drs = [], [], [], []
 running_reward = None
@@ -85,9 +86,7 @@ episode_number = 0
 obs_cache = [prepro(observation) for i in range(n_obs)]
 
 while True:
-    if render:
-        env.render()
-
+    
     # preprocess the observation, set input to network to be difference image
     cur_obs = prepro(observation)
     obs_cache.pop()
