@@ -184,10 +184,6 @@ class Achtung():
         if (self.players_active == 1 and self.n > 1) or (self.players_active == 0 and self.n == 1):
             self.game_over = True
             self.rnd += 1
-            
-            # for (i,p) in enumerate(self.players):
-            #     if p.active == True:
-            #         print(" " + COLORS_str[i] + " wins")
     
     def reward(self):
         if self.game_over == False:
@@ -294,7 +290,8 @@ def main(argv):
     done = True
     pygame.init()
     game = Achtung(n)
-
+    game.cache_frames = True
+    
     # game
     while True:
         if done:

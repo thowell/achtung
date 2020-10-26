@@ -13,9 +13,11 @@ resume = False  # resume from previous checkpoint?
 render = True
 
 n_obs = 4 # number of observations used for current "state"
+downscale_factor = 2 # image downscale factor
 
 # model initialization
-D = WINDOW_HEIGHT * WINDOW_WIDTH * 3 * n_obs # input dimensionality
+D = int(np.floor(WINDOW_HEIGHT * WINDOW_WIDTH * 3 * n_obs / downscale_factor**2)) # input dimensionality
+
 if resume:
   model = pickle.load(open('save.p', 'rb'))
 else:
@@ -35,7 +37,7 @@ def sigmoid(x):
 def prepro(I):
 #   """ prepro 210x160x3 uint8 frame into 6400 (80x80) 1D float vector """
 #   I = I[:195]  # crop
-#   I = I[::2, ::2, :]  # downsample by factor of 2
+  I = I[::downscale_factor, ::downscale_factor, :]  # downsample by factor
 #   I[I == 144] = 0  # erase background (background type 1)
 #   I[I == 109] = 0  # erase background (background type 2)
 #   I[I != 0] = 1  # everything else (paddles, ball) just set to 1
@@ -47,9 +49,9 @@ def discount_rewards(r):
   discounted_r = np.zeros_like(r)
   running_add = 0
   for t in reversed(range(0, r.size)):
-    # if r[t] != 0:
-    #   # reset the sum, since this was a game boundary (pong specific!)
-    #   running_add = 0
+    if r[t] != 1.0:
+      # reset the sum, since this was a game boundary (achtung specific!)
+      running_add = 0
     running_add = running_add * gamma + r[t]
     discounted_r[t] = running_add
   return discounted_r
@@ -124,8 +126,8 @@ while True:
 
         # standardize the rewards to be unit normal (helps control the gradient estimator variance)
         discounted_epr -= np.mean(discounted_epr)
-        if np.std(discounted_epr) != 0.0:
-            discounted_epr /= np.std(discounted_epr)
+        # if np.std(discounted_epr) != 0.0:
+        discounted_epr /= np.std(discounted_epr)
 
         # modulate the gradient with advantage (PG magic happens right here.)
         epdlogp *= discounted_epr
