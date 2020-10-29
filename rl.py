@@ -1,7 +1,7 @@
 """ Trains an agent with (stochastic) Policy Gradients on Achtung Die Kurve!. """
 import numpy as np
 import pickle
-from main import *
+from game import *
 
 # hyperparameters
 H = 200  # number of hidden layer neurons

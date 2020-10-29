@@ -1,3 +1,5 @@
+import numpy as np
+import matplotlib.pyplot as plt
 import random
 import sys
 import time
@@ -6,6 +8,8 @@ import pygame.gfxdraw
 
 from math import *
 from pygame.locals import *
+
+pygame.init()
 
 # game size
 WINDOW_HEIGHT = 250
@@ -56,7 +60,7 @@ class Player():
     def collision(self, game):
         if (self.x > game.window_width-game.window_buffer or self.x < game.window_buffer or
             self.y > game.window_height-game.window_buffer or self.y < game.window_buffer or
-                game.display.get_at((self.x, self.y)) != BLACK):
+            (game.frame != 0 and game.display.get_at((self.x, self.y)) != BLACK)):
             self.active = False
             return True
         else:
@@ -71,7 +75,6 @@ class Player():
 class Achtung():
     def __init__(self,n):
         print('Achtung Die Kurve!')
-
         pygame.display.set_caption('Achtung Die Kurve!')
         
         # pygame
@@ -97,6 +100,8 @@ class Achtung():
         self.verbose = True
         self.current_player = 0
         self.state_cache = pygame.surfarray.array3d(self.display)
+
+        self.reset()
 
     def render(self):
         self.screen.blit(self.display, (0, 0))
@@ -129,15 +134,20 @@ class Achtung():
         self.current_player = 0
         self.frame = 0
 
-        for i in range(self.n):
-            self.players[i].gen(self)
-            self.players[i].active = True
-
-        # pygame.time.wait(1000)
         self.display.fill(BLACK)
+
+        for i in range(self.n):
+            self.players[i].active = True
+            self.players[i].gen(self)
+            self.players[i].draw(self)
+            self.players[i].color = COLORS[i]
+
     
         return self.state()
-  
+
+    def close(self):
+        shutdown()
+
     def check_first_step(self):
         if self.first_step:
             print('Round %i' % (self.rnd))
@@ -288,9 +298,10 @@ def main(argv):
 
     # setup
     done = True
-    pygame.init()
     game = Achtung(n)
-    # game.cache_frames = True
+    # game.render_game = False
+    # # game.cache_frames = True
+    obs = game.reset()
 
     # game
     while True:
