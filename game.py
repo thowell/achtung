@@ -1,10 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import random
+import os
+os.environ["SDL_VIDEODRIVER"] = "dummy"
 import sys
 import time
 import pygame
 import pygame.gfxdraw
+
 
 from math import *
 from pygame.locals import *
@@ -83,9 +86,10 @@ class Achtung():
         self.window_height = WINDOW_HEIGHT
         self.window_buffer = 1
         self.fps_clock = pygame.time.Clock()
-        self.screen = pygame.display.set_mode((WINDOW_WIDTH,WINDOW_HEIGHT))
-        self.display = pygame.Surface(self.screen.get_size())
-        self.render_game = True
+        flags = pygame.HIDDEN
+        self.screen = pygame.display.set_mode((WINDOW_WIDTH,WINDOW_HEIGHT),flags=flags)
+        self.display = pygame.Surface((WINDOW_WIDTH,WINDOW_HEIGHT))
+        self.render_game = False
         self.cache_frames = False
 
         # game
