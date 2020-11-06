@@ -173,7 +173,7 @@ class Achtung():
         self.reset_color()
 
         # random hole
-        self.hole()
+        # self.hole()
 
         # action
         if action == 0:

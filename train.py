@@ -2,6 +2,7 @@ import argparse
 from game import *
 import numpy as np
 from itertools import count
+import pickle
 
 import torch
 import torch.nn as nn
@@ -19,8 +20,10 @@ parser.add_argument('--seed', type=int, default=543, metavar='N',
                     help='random seed (default: 543)')
 parser.add_argument('--render', action='store_true',
                     help='render the environment')
-parser.add_argument('--log-interval', type=int, default=5, metavar='N',
+parser.add_argument('--log-interval', type=int, default=50, metavar='N',
                     help='interval between training status logs (default: 10)')
+parser.add_argument('--save-interval', type=int, default=10000, metavar='N',
+                    help='interval between training status logs (default: 1000)')
 args = parser.parse_args()
 
 
@@ -29,8 +32,6 @@ env = Achtung(1)
 env.speed = 0 # set to zero for training (i.e., no frame delay)
 env.render_game = False
 downscale_factor = 2
-# env.seed(args.seed)
-# torch.manual_seed(args.seed)
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -140,15 +141,13 @@ class Policy():
         # Overall reward and loss history
         self.reward_history = []
         self.loss_history = []
-        self.net = ResNet(BasicBlock, [1], 0.0)
+        self.net = ResNet(BasicBlock, [1], 0.1)
 
-    # def forward(self, x):
-    #     print(x.shape)
-    #     x = self.affine1(x)
-    #     x = self.dropout(x)
-    #     x = F.relu(x)
-    #     action_scores = self.affine2(x)
-    #     return F.softmax(action_scores, dim=1)
+    def dump(self, model_file):
+        if torch.cuda.device_count() > 1:
+            torch.save(self.net.module, model_file)
+        else:
+            torch.save(self.net, model_file)
 
 
 if torch.cuda.is_available():
@@ -165,12 +164,13 @@ if torch.cuda.device_count() > 1:
     # self.net = nn.DataParallel(self.net)
 policy.net.to(device)
 
-optimizer = optim.Adam(policy.net.parameters(), lr=5e-5)
+optimizer = optim.Adam(policy.net.parameters(), lr=8e-5)
 # optimizer = optim.SGD(policy.net.parameters(), lr=1e-2, momentum=0.9)
 eps = np.finfo(np.float32).eps.item()
 
 def prepro(I):
     I = I[::downscale_factor, ::downscale_factor, 0]  # downsample by factor
+    I = I / (2*255)
     I[:,0] = 1
     I[:,-1] = 1
     I[0,:] = 1
@@ -184,38 +184,8 @@ def select_action(state):
     probs = policy.net(state)
     m = Categorical(probs)
     action = m.sample()
-    # print(action)
-    # if policy.policy_history.dim() != 0:
-    # print(policy.policy_history)
     policy.policy_history = torch.cat([policy.policy_history, m.log_prob(action)])
-    # else:
-    #     policy.policy_history = (m.log_prob(action))
-    # return action
-    # policy.saved_log_probs.append(m.log_prob(action))
     return action.item()
-
-
-# def finish_episode():
-#     R = 0
-#     policy_loss = []
-#     returns = []
-#     # Discount future rewards back to the present using gamma
-#     for r in policy.rewards[::-1]:
-#         R = r + args.gamma * R
-#         returns.insert(0, R)
-#     returns = torch.tensor(returns)
-#     # Scale rewards
-#     returns = (returns - returns.mean()) / (returns.std() + eps)
-#     for log_prob, R in zip(policy.saved_log_probs, returns):
-#         policy_loss.append(-log_prob * R)
-#     # Calculate loss
-#     optimizer.zero_grad()
-#     policy_loss = torch.cat(policy_loss).sum()
-#     loss = (torch.sum(torch.mul(policy.policy_history, Variable(rewards)).mul(-1), -1))
-#     policy_loss.backward()
-#     optimizer.step()
-#     del policy.rewards[:]
-#     del policy.saved_log_probs[:]
 
 def update_policy():
     R = 0
@@ -245,43 +215,43 @@ def update_policy():
     policy.reward_episode= []
 
 
-# X_batch = X_batch.view([-1, self.input_channels, self.pixels, self.pixels])
-# X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-
 
 def main():
     running_reward = 10
+    episode_length = []
     for i_episode in count(1):
         state, ep_reward = env.reset(), 0
-        for t in range(1, 10000):  # Don't infinite loop while learning
+        for t in range(1, 1000):  # Don't infinite loop while learning
             action = select_action(state)
-            # print("Action: ", action)
             state, reward, done, _ = env.step(action)
             if args.render:
                 env.render()
-            # policy.rewards.append(reward)
             policy.reward_episode.append(reward)
             ep_reward += reward
             if done:
                 break
         # Used to determine when the environment is solved.
+        episode_length.append(t)
         running_reward = (running_reward * 0.95) + (ep_reward * 0.05)
         update_policy()
-        if i_episode % 5 == 0:
+        if i_episode % args.log_interval == 0:
             print('Episode {}\tLast length: {:5d}\tAverage length: {:.2f}'.format(i_episode, t, running_reward))
-        if running_reward > 200:
+        if running_reward > 250:
             print("Solved! Running reward is now {} and the last episode runs to {} time steps!".format(running_reward, t))
             break
-        # running_reward = 0.05 * ep_reward + (1 - 0.05) * running_reward
-        # finish_episode()
-        # if i_episode % args.log_interval == 0:
-        #     print('Episode {}\tLast reward: {:.2f}\tAverage reward: {:.2f}'.format(
-        #           i_episode, ep_reward, running_reward))
-        # if running_reward > 250:
-        #     print("Solved! Running reward is now {} and "
-        #           "the last episode runs to {} time steps!".format(running_reward, t))
-        #     break
 
+        if (i_episode % args.save_interval == 0 or i_episode % args.save_interval-1 == 0 or i_episode % args.save_interval-2 == 0):
+            np.save("images/ep" + str(i_episode) + "_" + str(t), state)
+
+        if (i_episode % args.save_interval == 0 ):
+            print('\n Saving checkpoint ' + "net_" + str(i_episode) + ".ptmodel\n")
+            policy.dump("models/ep" + str(i_episode) + ".ptmodel")
+            with open("models/loss.txt", "wb") as f:   
+                pickle.dump(policy.loss_history, f)
+            with open("models/reward.txt", "wb") as f:   
+                pickle.dump(policy.reward_history, f)
+            with open("models/length.txt", "wb") as f:   
+                pickle.dump(episode_length, f) 
 
 if __name__ == '__main__':
     main()
