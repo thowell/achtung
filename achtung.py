@@ -1,212 +1,343 @@
+import numpy as np
+import random
 import sys
-sys.path.insert(1, '/home/taylor/Classes/cs230/achtung')
-import game
-
-import datetime
+import time
+import pygame
+import pygame.gfxdraw
 import os
 
-import gym
-import numpy
-import torch
+from math import *
+from pygame.locals import *
 
-from .abstract_game import AbstractGame
+import gym 
+from gym import spaces
 
-try:
-    import cv2
-except ModuleNotFoundError:
-    raise ModuleNotFoundError('Please run "pip install gym[atari]"')
+pygame.init()
 
+# game size
+WINDOW_HEIGHT = 250
+WINDOW_WIDTH = 250
+WINDOW_BORDER = 10
 
-class MuZeroConfig:
-    def __init__(self):
-        # More information is available here: https://github.com/werner-duvaud/muzero-general/wiki/Hyperparameter-Optimization
+# colors
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+MAGENTA = (255, 0, 255)
+GREEN = (0, 255, 0)
+CYAN = (0,255,255)
+ORANGE = (255, 69, 0)
+COLORS = [MAGENTA,GREEN,CYAN,ORANGE]
+COLORS_str = ['magenta','green','cyan','orange']
 
-        self.seed = 0  # Seed for numpy, torch and the game
-        self.max_num_gpus = None  # Fix the maximum number of GPUs to use. It's usually faster to use a single GPU (set it to 1) if it has enough memory. None will use every GPUs available
+# keys
+LEFT_KEYS = [pygame.K_LEFT, pygame.K_a, pygame.K_v, pygame.K_k]
+LEFT_KEYS_str = ['<-', 'a', 'v', 'k']
+RIGHT_KEYS = [pygame.K_RIGHT, pygame.K_s, pygame.K_b, pygame.K_l]
+RIGHT_KEYS_str = ['->','s','b','l']
 
-
-
-        ### Game
-        self.observation_shape = (3, 96, 96)  # Dimensions of the game observation, must be 3D (channel, height, width). For a 1D array, please reshape it to (1, 1, length of array)
-        self.action_space = list(range(2))  # Fixed list of all possible actions. You should only edit the length
-        self.players = list(range(2))  # List of players. You should only edit the length
-        self.stacked_observations = 3  # Number of previous observations and previous actions to add to the current observation
-
-        # Evaluate
-        self.muzero_player = 0  # Turn Muzero begins to play (0: MuZero plays first, 1: MuZero plays second)
-        self.opponent = "self"  # Hard coded agent that MuZero faces to assess his progress in multiplayer games. It doesn't influence training. None, "random" or "expert" if implemented in the Game class
-
-
-
-        ### Self-Play
-        self.num_workers = 1  # Number of simultaneous threads/workers self-playing to feed the replay buffer
-        self.selfplay_on_gpu = False
-        self.max_moves = 1000  # Maximum number of moves if game is not finished before
-        self.num_simulations = 10  # Number of future moves self-simulated
-        self.discount = 0.997  # Chronological discount of the reward
-        self.temperature_threshold = None  # Number of moves before dropping the temperature given by visit_softmax_temperature_fn to 0 (ie selecting the best action). If None, visit_softmax_temperature_fn is used every time
-
-        # Root prior exploration noise
-        self.root_dirichlet_alpha = 0.25
-        self.root_exploration_fraction = 0.25
-
-        # UCB formula
-        self.pb_c_base = 19652
-        self.pb_c_init = 1.25
-
-
-
-        ### Network
-        self.network = "resnet"  # "resnet" / "fullyconnected"
-        self.support_size = 5  # Value and reward are scaled (with almost sqrt) and encoded on a vector with a range of -support_size to support_size. Choose it so that support_size <= sqrt(max(abs(discounted reward)))
-
-        # Residual Network
-        self.downsample = "resnet"  # Downsample observations before representation network, False / "CNN" (lighter) / "resnet" (See paper appendix Network Architecture)
-        self.blocks = 16  # Number of blocks in the ResNet
-        self.channels = 256  # Number of channels in the ResNet
-        self.reduced_channels_reward = 256  # Number of channels in reward head
-        self.reduced_channels_value = 256  # Number of channels in value head
-        self.reduced_channels_policy = 256  # Number of channels in policy head
-        self.resnet_fc_reward_layers = [256, 256]  # Define the hidden layers in the reward head of the dynamic network
-        self.resnet_fc_value_layers = [256, 256]  # Define the hidden layers in the value head of the prediction network
-        self.resnet_fc_policy_layers = [256, 256]  # Define the hidden layers in the policy head of the prediction network
-
-        # Fully Connected Network
-        self.encoding_size = 10
-        self.fc_representation_layers = []  # Define the hidden layers in the representation network
-        self.fc_dynamics_layers = [16]  # Define the hidden layers in the dynamics network
-        self.fc_reward_layers = [16]  # Define the hidden layers in the reward network
-        self.fc_value_layers = []  # Define the hidden layers in the value network
-        self.fc_policy_layers = []  # Define the hidden layers in the policy network
-
-
-
-        ### Training
-        self.results_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../results", os.path.basename(__file__)[:-3], datetime.datetime.now().strftime("%Y-%m-%d--%H-%M-%S"))  # Path to store the model weights and TensorBoard logs
-        self.save_model = True  # Save the checkpoint in results_path as model.checkpoint
-        self.training_steps = int(1000e3)  # Total number of training steps (ie weights update according to a batch)
-        self.batch_size = 64  # Number of parts of games to train on at each training step
-        self.checkpoint_interval = int(1e3)  # Number of training steps before using the model for self-playing
-        self.value_loss_weight = 0.25  # Scale the value loss to avoid overfitting of the value function, paper recommends 0.25 (See paper appendix Reanalyze)
-        self.train_on_gpu = True if torch.cuda.is_available() else False  # Train on GPU if available
-
-        self.optimizer = "SGD"  # "Adam" or "SGD". Paper uses SGD
-        self.weight_decay = 1e-4  # L2 weights regularization
-        self.momentum = 0.9  # Used only if optimizer is SGD
-
-        # Exponential learning rate schedule
-        self.lr_init = 0.05  # Initial learning rate
-        self.lr_decay_rate = 0.1  # Set it to 1 to use a constant learning rate
-        self.lr_decay_steps = 350e3
-
-
-
-        ### Replay Buffer
-        self.replay_buffer_size = 3000  # Number of self-play games to keep in the replay buffer
-        self.num_unroll_steps = 5  # Number of game moves to keep for every batch element
-        self.td_steps = 10  # Number of steps in the future to take into account for calculating the target value
-        self.PER = True  # Prioritized Replay (See paper appendix Training), select in priority the elements in the replay buffer which are unexpected for the network
-        self.PER_alpha = 1  # How much prioritization is used, 0 corresponding to the uniform case, paper suggests 1
-
-        # Reanalyze (See paper appendix Reanalyse)
-        self.use_last_model_value = True  # Use the last model to provide a fresher, stable n-step value (See paper appendix Reanalyze)
-        self.reanalyse_on_gpu = False
-
-
-
-        ### Adjust the self play / training ratio to avoid over/underfitting
-        self.self_play_delay = 0  # Number of seconds to wait after each played game
-        self.training_delay = 0  # Number of seconds to wait after each training step
-        self.ratio = None  # Desired training steps per self played step ratio. Equivalent to a synchronous version, training can take much longer. Set it to None to disable it
-
-
-    def visit_softmax_temperature_fn(self, trained_steps):
-        """
-        Parameter to alter the visit count distribution to ensure that the action selection becomes greedier as training progresses.
-        The smaller it is, the more likely the best action (ie with the highest visit count) is chosen.
-
-        Returns:
-            Positive float.
-        """
-        if trained_steps < 500e3:
-            return 1.0
-        elif trained_steps < 750e3:
-            return 0.5
-        else:
-            return 0.25
-
-
-class Game(AbstractGame):
-    """
-    Game wrapper.
-    """
-
-    def __init__(self, seed=None):
-        self.env = game.Achtung(2)
-        self.env.speed = 0 # set to zero for training (i.e., no frame delay)
-        self.render_game = False
-
-    def step(self, action):
-        """
-        Apply action to the game.
+class Achtung(gym.Env):
+    def __init__(self,n=1):
+        print('Achtung Die Kurve!')
+        pygame.display.set_caption('Achtung Die Kurve!')
         
-        Args:
-            action : action of the action_space to take.
+        # pygame
+        self.speed = 12
+        self.window_width = WINDOW_WIDTH
+        self.window_height = WINDOW_HEIGHT
+        self.window_buffer = 1
+        self.fps_clock = pygame.time.Clock()
+        self.screen = pygame.display.set_mode((WINDOW_WIDTH,WINDOW_HEIGHT))
+        self.display = pygame.Surface(self.screen.get_size())
+        self.render_game = False #True
+        self.cache_frames = False
 
-        Returns:
-            The new observation, the reward and a boolean if the game has ended.
-        """
-        observation, reward, done, _ = self.env.step(action)
-        observation = cv2.resize(observation, (96, 96), interpolation=cv2.INTER_AREA)
-        observation = numpy.asarray(observation, dtype="float32") / 255.0
-        observation = numpy.moveaxis(observation, -1, 0)
-        return observation, reward, done
+        # game
+        self.game_over = True
+        self.first_step = True
+        self.n = n
+        self.players = self.init_players(n)
+        self.players_active = len(self.players)
+        self.rnd = 1
+        self.frame = 1
+        self.games = 1
+        self.verbose = True
+        self.current_player = 0
+        self.state_cache = np.array(pygame.surfarray.array3d(self.display), dtype=np.uint8)
 
-    def to_play(self):
-        """
-        Return the current player.
+        # gym
+        self.action_space = spaces.Discrete(3)
+        self.observation_space = spaces.Box(low=0, high=255,
+            shape=(WINDOW_HEIGHT, WINDOW_WIDTH, 3), dtype=np.uint8)
 
-        Returns:
-            The current player, it should be an element of the players list in the config. 
-        """
-        return self.env.to_play()
-        
-    def legal_actions(self):
-        """
-        Should return the legal actions at each turn, if it is not available, it can return
-        the whole action space. At each turn, the game have to be able to handle one of returned actions.
-        
-        For complex game where calculating legal moves is too long, the idea is to define the legal actions
-        equal to the action space but to return a negative reward if the action is illegal.        
+        if self.render_game == False:
+            os.environ["SDL_VIDEODRIVER"] = "dummy"
 
-        Returns:
-            An array of integers, subset of the action space.
-        """
-        return self.env.legal_actions()
-
-    def reset(self):
-        """
-        Reset the game for a new game.
-        
-        Returns:
-            Initial observation of the game.
-        """
-        observation = self.env.reset()
-        observation = cv2.resize(observation, (96, 96), interpolation=cv2.INTER_AREA)
-        observation = numpy.asarray(observation, dtype="float32") / 255.0
-        observation = numpy.moveaxis(observation, -1, 0)
-        return observation
-
-    def close(self):
-        """
-        Properly close the game.
-        """
-        self.env.close()
+        self.reset()
 
     def render(self):
-        """
-        Display the game observation.
-        """
-        self.env.render()
-        input("Press enter to take a step ")
+        self.screen.blit(self.display, (0, 0))
+    
+    def state(self):
+        if self.current_player == 0:
+            self.state_cache = np.array(pygame.surfarray.array3d(self.display), dtype=np.uint8)
+
+        return self.state_cache
+
+    def init_players(self,n):
+        # generate players
+        players = [Player() for i in range(n)]
+
+        for i in range(n):
+            players[i].gen(self)
+            players[i].color = COLORS[i]
+            players[i].left_key = LEFT_KEYS[i]
+            players[i].right_key = RIGHT_KEYS[i]
+
+        return players
+
+    def reset_color(self):
+        self.players[self.current_player].color = COLORS[self.current_player]
+
+    def reset(self, mode='human'):
+        self.game_over = False
+        self.first_step = True
+        self.players_active = self.n
+        self.current_player = 0
+        self.frame = 0
+
+        self.display.fill(BLACK)
+
+        for i in range(self.n):
+            self.players[i].active = True
+            self.players[i].gen(self)
+            self.players[i].draw(self)
+            self.players[i].color = COLORS[i]
+
+    
+        return self.state()
+
+    def close(self):
+        shutdown()
+
+    def check_first_step(self):
+        if self.first_step:
+            print('Round %i' % (self.rnd))
+            self.first_step = False
+
+    def hole(self):
+        hole = random.randrange(1, 20)
+        i = self.current_player
+        if hole == i+5 and self.players[i].active:
+            self.players[i].move()
+            self.players[i].color = BLACK
+
+    def update_player(self,action):
+        # current player
+        i = self.current_player
+        player = self.players[i]
+
+         # reset players' colors
+        self.reset_color()
+
+        # random hole
+        self.hole()
+
+        # action
+        if action == 0:
+            player.angle -= 10
+        elif action == 1:
+            player.angle += 10
+        elif action == 2:
+            None
+        else:
+            None
+
+        # update
+        if player.active and ((self.players_active > 1 and self.n > 1) or (self.players_active > 0 and self.n == 1)):
+            player.angle_reset()
+
+            # checking if someone fails
+            if player.collision(self):
+                self.players_active -= 1
+
+            player.draw(self)
+            player.move()
+
+    def round_over(self):
+        if (self.players_active == 1 and self.n > 1) or (self.players_active == 0 and self.n == 1):
+            self.game_over = True
+            self.rnd += 1
+    
+    def reward(self):
+        if self.game_over == False:
+            return 1.0 # nominal reward
+        else:
+            if self.players[self.current_player].active:
+                return 10.0 # winning reward
+            else:
+                return 0.0 # losing reward
+    
+    def to_play(self):
+        return self.current_player
+
+    def legal_actions(self):
+        return range(3)
+        
+    def step(self,action):
+
+         # current state
+        state = self.state()
+
+        # check first step
+        self.check_first_step()
+
+        # update current player
+        self.update_player(action)
+
+        # check round over
+        self.round_over()
+
+        # get reward
+        reward = self.reward()
+
+        # check for done
+        if self.game_over and self.current_player == self.n-1:
+            done = True
+        else:
+            done = False
+
+        # game frames
+        if self.current_player == self.n-1:  
+            if self.render_game: 
+                self.render()
+                self.fps_clock.tick(self.speed)
+            self.frame += 1
+        pygame.display.update()
+
+        # cache frames
+        if self.cache_frames:
+            filename = "images/{}_{}.JPG"
+            pygame.image.save(self.display, filename.format(self.rnd,self.frame))
+
+        # update current player
+        self.current_player += 1
+        if self.current_player >= self.n:
+            self.current_player = 0
+
+        return state, reward, done, {}
+
+class Player():
+    def __init__(self):
+        self.active = True
+        self.color = None
+        self.score = 0
+        self.radius = 2
+        self.x = 0
+        self.y = 0
+        self.angle = 0
+
+    def gen(self, game):
+        self.x = random.randrange(WINDOW_BORDER, game.window_width - WINDOW_BORDER)
+        self.y = random.randrange(WINDOW_BORDER, game.window_height - WINDOW_BORDER)
+        self.angle = random.randrange(0, 360)
+
+    def move(self):
+        self.x += int(self.radius * 2 * cos(radians(self.angle)))
+        self.y += int(self.radius * 2 * sin(radians(self.angle)))
+
+    def draw(self, game):
+        pygame.gfxdraw.aacircle(game.display, self.x,
+                                self.y, self.radius, self.color)
+        pygame.gfxdraw.filled_circle(
+            game.display, self.x, self.y, self.radius, self.color)
+
+    def collision(self, game):
+        if (self.x > game.window_width-game.window_buffer or self.x < game.window_buffer or
+            self.y > game.window_height-game.window_buffer or self.y < game.window_buffer or
+            (game.frame != 0 and game.display.get_at((self.x, self.y)) != BLACK)):
+            self.active = False
+            return True
+        else:
+            return False
+
+    def angle_reset(self):
+        if self.angle < 0:
+            self.angle += 360
+        elif self.angle >= 360:
+            self.angle -= 360
+
+def number_players(argv):
+    # input number of players
+    if len(argv) > 1:
+        _n = int(argv[1])
+        if _n < 5 and _n > 0:
+            n = _n
+        else:
+            print('Invalid number of players, setting to: 2')
+            n = 2
+    else:
+        n = 2
+
+    print('  %i players' % (n))
+    for i in range(n):
+        print('     [%s] (%s,%s)' %
+              (COLORS_str[i], LEFT_KEYS_str[i], RIGHT_KEYS_str[i]))
+
+    return n
+
+def keyboard_input(game):
+    for event in pygame.event.get():
+        if event.type == QUIT:
+            shutdown()
+        elif event.type == KEYDOWN:
+            if event.key == K_ESCAPE:
+                shutdown()
+
+    action = 2
+
+    i = game.current_player
+
+    keys = pygame.key.get_pressed()
+
+    if keys[game.players[i].left_key]:
+        action = 0
+    if keys[game.players[i].right_key]:
+        action = 1
+
+    return action
+
+def main(argv):
+    # get number of players
+    n = number_players(argv)
+
+    # setup
+    done = True
+    game = Achtung(n)
+    game.render_game = True
+    game.cache_frames = False
+    
+    obs = game.reset()
+
+    # game
+    while True:
+        if done:
+            for (i,p) in enumerate(game.players):
+                if p.active == True:
+                    print(" " + COLORS_str[i] + " wins")
+            obs = game.reset()
+
+        for i in range(game.n):
+            # keyboard input
+            action = keyboard_input(game)
+
+            # step
+            obs, reward, done, info = game.step(action)
+            
+            print("player: %s" % COLORS_str[i])
+            print("     reward: ", reward)
+            print("     action: ", action)
+            print("     frame: ", game.frame)
+
+if __name__ == '__main__':
+    main(sys.argv)
 
