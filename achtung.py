@@ -12,12 +12,19 @@ from pygame.locals import *
 import gym 
 from gym import spaces
 
+import matplotlib.pyplot as plt 
+
 pygame.init()
 
 # game size
-WINDOW_HEIGHT = 250
-WINDOW_WIDTH = 250
+WINDOW_HEIGHT = 320
+WINDOW_WIDTH = 320
 WINDOW_BORDER = 10
+
+# observation
+DOWNSCALE = 4
+OBS_HEIGHT = int(np.floor(WINDOW_HEIGHT / DOWNSCALE))
+OBS_WIDTH = int(np.floor(WINDOW_WIDTH / DOWNSCALE))
 
 # colors
 BLACK = (0, 0, 0)
@@ -62,12 +69,12 @@ class Achtung(gym.Env):
         self.games = 1
         self.verbose = True
         self.current_player = 0
-        self.state_cache = np.array(pygame.surfarray.array3d(self.display), dtype=np.uint8)
+        self.state_cache = np.resize(np.dot(np.array(pygame.surfarray.array3d(self.display), dtype=np.uint8), [0.299, 0.587, 0.114])[::DOWNSCALE, ::DOWNSCALE], (OBS_WIDTH, OBS_HEIGHT, 1))
 
         # gym
         self.action_space = spaces.Discrete(3)
         self.observation_space = spaces.Box(low=0, high=255,
-            shape=(WINDOW_HEIGHT, WINDOW_WIDTH, 3), dtype=np.uint8)
+            shape=(OBS_HEIGHT, OBS_WIDTH, 1), dtype=np.uint8)
 
         if self.render_game == False:
             os.environ["SDL_VIDEODRIVER"] = "dummy"
@@ -79,7 +86,7 @@ class Achtung(gym.Env):
     
     def state(self):
         if self.current_player == 0:
-            self.state_cache = np.array(pygame.surfarray.array3d(self.display), dtype=np.uint8)
+            self.state_cache = np.resize(np.dot(np.array(pygame.surfarray.array3d(self.display), dtype=np.uint8), [0.299, 0.587, 0.114])[::DOWNSCALE, ::DOWNSCALE], (OBS_WIDTH, OBS_HEIGHT, 1))
 
         return self.state_cache
 
@@ -121,7 +128,7 @@ class Achtung(gym.Env):
 
     def check_first_step(self):
         if self.first_step:
-            print('Round %i' % (self.rnd))
+            # print('Round %i' % (self.rnd))
             self.first_step = False
 
     def hole(self):
@@ -175,7 +182,7 @@ class Achtung(gym.Env):
             if self.players[self.current_player].active:
                 return 10.0 # winning reward
             else:
-                return 0.0 # losing reward
+                return -1.0 # losing reward
     
     def to_play(self):
         return self.current_player
@@ -318,8 +325,16 @@ def main(argv):
     
     obs = game.reset()
 
+    # print(obs.shape)
+    # print(OBS_HEIGHT)
+    # print(OBS_WIDTH)
     # game
     while True:
+        # print(np.max(obs))
+        # print(np.min(obs))
+        # plt.imshow(np.resize(obs, (OBS_HEIGHT, OBS_WIDTH)), cmap="gray") 
+        # plt.show()
+
         if done:
             for (i,p) in enumerate(game.players):
                 if p.active == True:
