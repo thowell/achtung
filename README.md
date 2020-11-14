@@ -22,5 +22,5 @@ python achtung.py 2
 
 (train.py) Stochastic policy gradient - simple ResNet policy and stochastic policy gradient implemented in PyTorch, based on: https://github.com/pytorch/examples/tree/master/reinforcement_learning
 
-(a2c/ppo/dqn.ipynb) Actor Critic - Proximal Policy Optimization - Deep Q-Learning - using Stable Baselines 3: https://github.com/pytorch/examples/tree/master/reinforcement_learning
+(a2c/ppo/dqn.ipynb) Actor Critic - Proximal Policy Optimization - Deep Q-Learning - using Stable Baselines3: https://github.com/DLR-RM/stable-baselines3
 
