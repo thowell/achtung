@@ -21,9 +21,6 @@ WINDOW_HEIGHT = 320
 WINDOW_WIDTH = 320
 WINDOW_BORDER = 50
 
-# rounds
-N_ROUNDS = 21
-
 # observation
 DOWNSCALE = 4
 OBS_HEIGHT = int(np.floor(WINDOW_HEIGHT / DOWNSCALE))
@@ -68,6 +65,7 @@ class Achtung(gym.Env):
         self.players = self.init_players(n)
         self.players_active = len(self.players)
         self.rnd = 1
+        self.n_rounds = 21
         self.frame = 1
         self.games = 1
         self.verbose = True
@@ -203,7 +201,7 @@ class Achtung(gym.Env):
         return self.current_player
 
     def legal_actions(self):
-        return range(3)
+        return [1, 2, 3]
         
     def step(self,action):
 
@@ -225,7 +223,7 @@ class Achtung(gym.Env):
         # check for done
         done = False
         if self.game_over and self.current_player == self.n-1:
-            if self.rnd >= N_ROUNDS:
+            if self.rnd >= self.n_rounds:
                 self.rnd = 0
                 done = True
             else:

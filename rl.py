@@ -1,4 +1,4 @@
-""" Trains an agent with (stochastic) Policy Gradients on Pong. Uses OpenAI Gym. """
+""" Trains an agent with (stochastic) Policy Gradients on  """
 import numpy as np
 import pickle 
 from achtung import Achtung
@@ -14,6 +14,9 @@ gamma = 0.99 # discount factor for reward
 decay_rate = 0.99 # decay factor for RMSProp leaky sum of grad^2
 resume = True # resume from previous checkpoint?
 render = True
+train = False
+eval_policy = True
+
 # model initialization
 D1 = 80 * 80
 D = D1 * 2 # input dimensionality: 80x80 grid
@@ -31,7 +34,7 @@ def sigmoid(x):
   return 1.0 / (1.0 + np.exp(-x)) # sigmoid "squashing" function to interval [0,1]
 
 def prepro(I):
-  I = I[::4,::4, 0] # downsample by factor of 2
+  I = I[::4,::4, 0] # downsample by factor of 4
   # I[I == 144] = 0 # erase background (background type 1)
   # I[I == 109] = 0 # erase background (background type 2)
   I[I != 0] = 1 # everything else (paddles, ball) just set to 1
@@ -65,10 +68,10 @@ def policy_backward(eph, epdlogp):
 env = Achtung(1)
 env.render_game = True
 env.speed = 0
+prev_x = None
 
 # obs = env.reset()
 # n_steps = 20
-# prev_x = None
 # for _ in range(n_steps):
 #     # Random action
 #     action = env.action_space.sample()
@@ -87,74 +90,105 @@ env.speed = 0
 
 # print("test complete")
 
-observation = env.reset()
-prev_x = None # used in computing the difference frame
-xs,hs,dlogps,drs = [],[],[],[]
-running_reward = None
-reward_sum = 0
-episode_number = 0
+if train:
+  observation = env.reset()
+  prev_x = None # used in computing the difference frame
+  xs,hs,dlogps,drs = [],[],[],[]
+  running_reward = None
+  reward_sum = 0
+  episode_number = 0
 
-while True:
-  if render: env.render()
+  while True:
+    if render: env.render()
 
-  # preprocess the observation, set input to network to be difference image
-  cur_x = prepro(observation)
-  # x = cur_x - prev_x if prev_x is not None else np.zeros(D1)
-  x = np.concatenate((cur_x, prev_x if prev_x is not None else np.zeros(D1)), axis=None)
+    # preprocess the observation, set input to network to be difference image
+    cur_x = prepro(observation)
+    # x = cur_x - prev_x if prev_x is not None else np.zeros(D1)
+    x = np.concatenate((cur_x, prev_x if prev_x is not None else np.zeros(D1)), axis=None)
 
-  prev_x = cur_x
+    prev_x = cur_x
 
-  # forward the policy network and sample an action from the returned probability
-  aprob, h = policy_forward(x)
-  action = 2 if np.random.uniform() < aprob else 3 # roll the dice!
+    # forward the policy network and sample an action from the returned probability
+    aprob, h = policy_forward(x)
+    action = 2 if np.random.uniform() < aprob else 3 # roll the dice!
 
-  # record various intermediates (needed later for backprop)
-  xs.append(x) # observation
-  hs.append(h) # hidden state
-  y = 1 if action == 2 else 0 # a "fake label"
-  dlogps.append(y - aprob) # grad that encourages the action that was taken to be taken (see http://cs231n.github.io/neural-networks-2/#losses if confused)
+    # record various intermediates (needed later for backprop)
+    xs.append(x) # observation
+    hs.append(h) # hidden state
+    y = 1 if action == 2 else 0 # a "fake label"
+    dlogps.append(y - aprob) # grad that encourages the action that was taken to be taken (see http://cs231n.github.io/neural-networks-2/#losses if confused)
 
-  # step the environment and get new measurements
-  observation, reward, done, info = env.step(action)
-  reward_sum += reward
+    # step the environment and get new measurements
+    observation, reward, done, info = env.step(action)
+    reward_sum += reward
 
-  drs.append(reward) # record reward (has to be done after we call step() to get reward for previous action)
+    drs.append(reward) # record reward (has to be done after we call step() to get reward for previous action)
 
-  if done: # an episode finished
-    episode_number += 1
+    if done: # an episode finished
+      episode_number += 1
 
-    # stack together all inputs, hidden states, action gradients, and rewards for this episode
-    epx = np.vstack(xs)
-    eph = np.vstack(hs)
-    epdlogp = np.vstack(dlogps)
-    epr = np.vstack(drs)
-    xs,hs,dlogps,drs = [],[],[],[] # reset array memory
+      # stack together all inputs, hidden states, action gradients, and rewards for this episode
+      epx = np.vstack(xs)
+      eph = np.vstack(hs)
+      epdlogp = np.vstack(dlogps)
+      epr = np.vstack(drs)
+      xs,hs,dlogps,drs = [],[],[],[] # reset array memory
 
-    # compute the discounted reward backwards through time
-    discounted_epr = discount_rewards(epr)
-    # standardize the rewards to be unit normal (helps control the gradient estimator variance)
-    discounted_epr -= np.mean(discounted_epr)
-    discounted_epr /= np.std(discounted_epr)
+      # compute the discounted reward backwards through time
+      discounted_epr = discount_rewards(epr)
+      # standardize the rewards to be unit normal (helps control the gradient estimator variance)
+      discounted_epr -= np.mean(discounted_epr)
+      discounted_epr /= np.std(discounted_epr)
 
-    epdlogp *= discounted_epr # modulate the gradient with advantage (PG magic happens right here.)
-    grad = policy_backward(eph, epdlogp)
-    for k in model: grad_buffer[k] += grad[k] # accumulate grad over batch
+      epdlogp *= discounted_epr # modulate the gradient with advantage (PG magic happens right here.)
+      grad = policy_backward(eph, epdlogp)
+      for k in model: grad_buffer[k] += grad[k] # accumulate grad over batch
 
-    # perform rmsprop parameter update every batch_size episodes
-    if episode_number % batch_size == 0:
-      for k,v in model.items():
-        g = grad_buffer[k] # gradient
-        rmsprop_cache[k] = decay_rate * rmsprop_cache[k] + (1 - decay_rate) * g**2
-        model[k] += learning_rate * g / (np.sqrt(rmsprop_cache[k]) + 1e-5)
-        grad_buffer[k] = np.zeros_like(v) # reset batch gradient buffer
+      # perform rmsprop parameter update every batch_size episodes
+      if episode_number % batch_size == 0:
+        for k,v in model.items():
+          g = grad_buffer[k] # gradient
+          rmsprop_cache[k] = decay_rate * rmsprop_cache[k] + (1 - decay_rate) * g**2
+          model[k] += learning_rate * g / (np.sqrt(rmsprop_cache[k]) + 1e-5)
+          grad_buffer[k] = np.zeros_like(v) # reset batch gradient buffer
 
-    # boring book-keeping
-    running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
-    print ('resetting env. episode reward total was %f. running mean: %f' % (reward_sum, running_reward))
-    if episode_number % 100 == 0: pickle.dump(model, open('save.p', 'wb'))
-    reward_sum = 0
-    observation = env.reset() # reset env
-    prev_x = None
+      # boring book-keeping
+      running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
+      print ('resetting env. episode reward total was %f. running mean: %f' % (reward_sum, running_reward))
+      if episode_number % 100 == 0: pickle.dump(model, open('save.p', 'wb'))
+      reward_sum = 0
+      observation = env.reset() # reset env
+      prev_x = None
 
-  if reward != 0: # Pong has either +1 or -1 reward exactly when game ends.
-    print ('ep %d: game finished, reward: %f' % (episode_number, reward) + ('' if reward == -1 else ' !!!!!!!!'))
+    if reward != 0:
+      print ('ep %d: game finished, reward: %f' % (episode_number, reward) + ('' if reward == -1 else ' !!!!!!!!'))
+
+if eval_policy:
+  obs = env.reset()
+  env.n_rounds = 1
+  n_games = 0
+  running_reward = []
+  rewards = []
+
+  while n_games < 100:
+      cur_x = prepro(obs)
+      x = np.concatenate((cur_x, prev_x if prev_x is not None else np.zeros(D1)), axis=None)
+      prev_x = cur_x
+      aprob, h = policy_forward(x)
+      action = 2 if np.random.uniform() < aprob else 3 # roll the dice!
+
+      print("action: ", action)
+      
+      obs, reward, done, info = env.step(action)
+      running_reward.append(reward)
+      if done:
+          obs = env.reset()
+          n_games += 1
+          rewards.append(sum(running_reward))
+          running_reward = []
+          prev_x = None
+
+
+  print("test complete")
+  print("   reward (avg): ", np.mean(rewards))
+  print("   reward (std): ", np.std(rewards))
