@@ -5,7 +5,7 @@ from achtung import Achtung
 
 def prepro(I):
   I = I[::4,::4, 0] # downsample by factor of 4
-  I = I / 255.0 # everything else just set to 1
+  I = I / 255.0 # normalize
   return I
 
 class AchtungProcess(gym.Env):
@@ -35,7 +35,7 @@ class AchtungProcess(gym.Env):
       self.state = np.roll(self.state, shift=-1,axis=0)
       self.state[-1] = obs_new
 
-      return self.state, np.sum(_reward), done, None        
+      return self.state, np.sum(_reward), done, {}   
 
     def reset(self):
       self.state = np.zeros((self.obs_len, 80, 80))
@@ -46,6 +46,9 @@ class AchtungProcess(gym.Env):
 
     def render(self):
       self.env.render()
+
+    def close(self):
+        shutdown()
 
 # env = AchtungProcess(1)
 # env.env.render_game = True
