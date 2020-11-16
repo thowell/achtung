@@ -172,6 +172,7 @@ class Achtung(gym.Env):
     def round_over(self):
         if (self.players_active == 1 and self.n > 1) or (self.players_active == 0 and self.n == 1):
             self.game_over = True
+            self.id += 1
 
     def reward(self):
         if self.game_over == False:

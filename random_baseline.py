@@ -1,11 +1,11 @@
 import numpy as np
 import os
-from achtung import Achtung
+from achtung_process import AchtungProcess
 
-env = Achtung()
-env.render_game = True
-env.speed = 0
-env.n_rounds = 1
+env = AchtungProcess(1)
+env.env.render_game = True
+env.env.speed = 0
+
 # env.cache_frames = True
 
 obs = env.reset()
@@ -15,14 +15,14 @@ rewards = []
 
 while n_games < 100:
     # Random action
-    action = env.action_space.sample() + 1
+    action = env.action_space.sample()
     print("action: ", action)
     obs, reward, done, info = env.step(action)
     running_reward.append(reward)
     if done:
         rewards.append(sum(running_reward))
         running_reward = []
-        filename = "images/game_{}".format(env.games-1)
+        #filename = "images/game_{}".format(env.games-1)
         # os.rename(filename, filename + "_{}".format(int(rewards[-1])))
         obs = env.reset()
         n_games += 1
