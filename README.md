@@ -1,4 +1,6 @@
 # Achtung Die Kurve!
+
+![](2p.gif)
     
 Experiment to train agent to play Achtung Die Kurve! using reinforcement learning.
 
