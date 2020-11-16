@@ -1,25 +1,25 @@
-""" Trains an agent with (stochastic) Policy Gradients on  """
+""" Trains an agent with (stochastic) Policy Gradients on Achtung Die Kurve """
 import numpy as np
 import pickle 
-from achtung import Achtung
+import os
+from achtung_process import AchtungProcess
 
 import matplotlib.pyplot as plt
 
-
 # hyperparameters
 H = 200 # number of hidden layer neurons
-batch_size = 10 # every how many episodes to do a param update?
+batch_size = 100 # every how many episodes to do a param update?
 learning_rate = 1e-4
 gamma = 0.99 # discount factor for reward
 decay_rate = 0.99 # decay factor for RMSProp leaky sum of grad^2
-resume = True # resume from previous checkpoint?
+resume = False # resume from previous checkpoint?
 render = True
-train = False
-eval_policy = True
+train = True
+eval_policy = False
 
 # model initialization
 D1 = 80 * 80
-D = D1 * 2 # input dimensionality: 80x80 grid
+D = D1 * 4 # input dimensionality: 80x80 grid
 if resume:
   model = pickle.load(open('save.p', 'rb'))
 else:
@@ -33,19 +33,12 @@ rmsprop_cache = { k : np.zeros_like(v) for k,v in model.items() } # rmsprop memo
 def sigmoid(x):
   return 1.0 / (1.0 + np.exp(-x)) # sigmoid "squashing" function to interval [0,1]
 
-def prepro(I):
-  I = I[::4,::4, 0] # downsample by factor of 4
-  # I[I == 144] = 0 # erase background (background type 1)
-  # I[I == 109] = 0 # erase background (background type 2)
-  I[I != 0] = 1 # everything else (paddles, ball) just set to 1
-  return I.astype(np.float).ravel()
-
 def discount_rewards(r):
   """ take 1D float array of rewards and compute discounted reward """
   discounted_r = np.zeros_like(r)
   running_add = 0
   for t in reversed(range(0, r.size)):
-    if r[t] != 0.0: running_add = 0 # reset the sum, since this was a game boundary (pong specific!)
+    if r[t] != 4.0: running_add = 0 # reset the sum, since this was a game boundary (specific to Achtung reward and frame skip)
     running_add = running_add * gamma + r[t]
     discounted_r[t] = running_add
   return discounted_r
@@ -65,48 +58,26 @@ def policy_backward(eph, epdlogp):
   dW1 = np.dot(dh.T, epx)
   return {'W1':dW1, 'W2':dW2}
 
-env = Achtung(1)
-env.render_game = True
-env.speed = 0
-prev_x = None
-
-# obs = env.reset()
-# n_steps = 20
-# for _ in range(n_steps):
-#     # Random action
-#     action = env.action_space.sample()
-#     obs, reward, done, info = env.step(action)
-
-#     cur_x = prepro(obs)
-#     x = np.concatenate((cur_x, prev_x if prev_x is not None else np.zeros(D1)), axis=None)
-#     prev_x = cur_x
-
-#     print(x.shape)
-#     print(D)
-#     # plt.imshow(np.reshape(x, (80,80)), cmap="gray") 
-#     # plt.show()
-#     if done:
-#         obs = env.reset()
-
-# print("test complete")
+env = AchtungProcess(1)
+env.env.render_game = render
+env.env.speed = 0
+obs = env.reset()
 
 if train:
   observation = env.reset()
-  prev_x = None # used in computing the difference frame
   xs,hs,dlogps,drs = [],[],[],[]
   running_reward = None
   reward_sum = 0
   episode_number = 0
 
+  reward_cache = []
+  reward_rm_cache = []
+  reward_ep_cache = []
+
   while True:
     if render: env.render()
 
-    # preprocess the observation, set input to network to be difference image
-    cur_x = prepro(observation)
-    # x = cur_x - prev_x if prev_x is not None else np.zeros(D1)
-    x = np.concatenate((cur_x, prev_x if prev_x is not None else np.zeros(D1)), axis=None)
-
-    prev_x = cur_x
+    x = obs.ravel()
 
     # forward the policy network and sample an action from the returned probability
     aprob, h = policy_forward(x)
@@ -119,7 +90,7 @@ if train:
     dlogps.append(y - aprob) # grad that encourages the action that was taken to be taken (see http://cs231n.github.io/neural-networks-2/#losses if confused)
 
     # step the environment and get new measurements
-    observation, reward, done, info = env.step(action)
+    observation, reward, done, info = env.step(action-1)
     reward_sum += reward
 
     drs.append(reward) # record reward (has to be done after we call step() to get reward for previous action)
@@ -154,18 +125,26 @@ if train:
 
       # boring book-keeping
       running_reward = reward_sum if running_reward is None else running_reward * 0.99 + reward_sum * 0.01
-      print ('resetting env. episode reward total was %f. running mean: %f' % (reward_sum, running_reward))
-      if episode_number % 100 == 0: pickle.dump(model, open('save.p', 'wb'))
+      print ('episode (%i) reward: %f. running mean: %f' % (episode_number, reward_sum, running_reward))
+      if episode_number % 100 == 0: 
+        pickle.dump(model, open('save.p', 'wb'))
+        
+        reward_ep_cache.append(reward_sum)
+        with open("rl_training/reward_ep.txt", "wb") as f:   
+          pickle.dump(reward_ep_cache, f)
+
+        reward_rm_cache.append(running_reward)
+        with open("rl_training/reward_rm.txt", "wb") as f:   
+          pickle.dump(reward_rm_cache, f)
+
       reward_sum = 0
       observation = env.reset() # reset env
       prev_x = None
 
-    if reward != 0:
-      print ('ep %d: game finished, reward: %f' % (episode_number, reward) + ('' if reward == -1 else ' !!!!!!!!'))
-
 if eval_policy:
+  env.cache_frames = True
+  env.speed = 0
   obs = env.reset()
-  env.n_rounds = 1
   n_games = 0
   running_reward = []
   rewards = []
@@ -179,12 +158,14 @@ if eval_policy:
 
       print("action: ", action)
       
-      obs, reward, done, info = env.step(action)
+      obs, reward, done, info = env.step(action-1)
       running_reward.append(reward)
       if done:
           obs = env.reset()
           n_games += 1
           rewards.append(sum(running_reward))
+          filename = "images/game_{}".format(env.games-1)
+          # os.rename(filename, filename + "_{}".format(int(rewards[-1])))
           running_reward = []
           prev_x = None
 

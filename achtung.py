@@ -43,7 +43,7 @@ RIGHT_KEYS = [pygame.K_RIGHT, pygame.K_s, pygame.K_b, pygame.K_l]
 RIGHT_KEYS_str = ['->','s','b','l']
 
 class Achtung(gym.Env):
-    def __init__(self,n=1,prepro=False):
+    def __init__(self,n=1,id=0):
         print('Achtung Die Kurve!')
         pygame.display.set_caption('Achtung Die Kurve!')
         
@@ -64,26 +64,16 @@ class Achtung(gym.Env):
         self.n = n
         self.players = self.init_players(n)
         self.players_active = len(self.players)
-        self.rnd = 1
-        self.n_rounds = 21
+        self.id = 0
         self.frame = 1
-        self.games = 1
         self.verbose = True
         self.current_player = 0
-        self.prepro = prepro
-        if self.prepro:
-            np.resize(np.dot(np.array(pygame.surfarray.array3d(self.display), dtype=np.uint8), [0.299, 0.587, 0.114])[::DOWNSCALE, ::DOWNSCALE], (OBS_WIDTH, OBS_HEIGHT, 1))
-        else:
-            self.state_cache = np.array(pygame.surfarray.array3d(self.display), dtype=np.uint8)
+        self.state_cache = np.array(pygame.surfarray.array3d(self.display), dtype=np.uint8)
 
         # gym
         self.action_space = spaces.Discrete(3)
-        if self.prepro:
-            self.observation_space = spaces.Box(low=0, high=255,
-                shape=(OBS_HEIGHT, OBS_WIDTH, 1), dtype=np.uint8)
-        else:
-            self.observation_space = spaces.Box(low=0, high=255,
-                shape=(WINDOW_HEIGHT, WINDOW_WIDTH, 3), dtype=np.uint8)
+        self.observation_space = spaces.Box(low=0, high=255,
+            shape=(WINDOW_HEIGHT, WINDOW_WIDTH, 3), dtype=np.uint8)
         if self.render_game == False:
             os.environ["SDL_VIDEODRIVER"] = "dummy"
 
@@ -91,13 +81,11 @@ class Achtung(gym.Env):
 
     def render(self):
         self.screen.blit(self.display, (0, 0))
+        return self.state_cache
     
     def state(self):
         if self.current_player == 0:
-            if self.prepro:
-                np.resize(np.dot(np.array(pygame.surfarray.array3d(self.display), dtype=np.uint8), [0.299, 0.587, 0.114])[::DOWNSCALE, ::DOWNSCALE], (OBS_WIDTH, OBS_HEIGHT, 1))
-            else:
-                self.state_cache = np.array(pygame.surfarray.array3d(self.display), dtype=np.uint8)
+            self.state_cache = np.array(pygame.surfarray.array3d(self.display), dtype=np.uint8)
 
         return self.state_cache
 
@@ -161,11 +149,11 @@ class Achtung(gym.Env):
         self.hole()
 
         # action
-        if action == 1:
+        if action == 0:
             None
-        elif action == 2:            
+        elif action == 1:            
             player.angle -= 10
-        elif action == 3:
+        elif action == 2:
             player.angle += 10
         else:
             None
@@ -183,19 +171,13 @@ class Achtung(gym.Env):
 
     def round_over(self):
         if (self.players_active == 1 and self.n > 1) or (self.players_active == 0 and self.n == 1):
-            if self.game_over == False:
-                self.rnd += 1
             self.game_over = True
 
     def reward(self):
         if self.game_over == False:
-            return 0.0 # nominal reward
+            return 1.0 # nominal reward
         else:
-            # if self.players[self.current_player].active:
-            #     return float(self.frame) # winning reward
-            # else:
-            #     return -1.0 # losing reward
-            return float(self.frame)
+            return -1.0 # losing reward
     
     def to_play(self):
         return self.current_player
@@ -223,29 +205,28 @@ class Achtung(gym.Env):
         # check for done
         done = False
         if self.game_over and self.current_player == self.n-1:
-            if self.rnd >= self.n_rounds:
-                self.rnd = 0
-                done = True
-            else:
-                self.reset()
-        else:
-            # game frames
-            if self.current_player == self.n-1:  
-                if self.render_game: 
-                    self.render()
-                    self.fps_clock.tick(self.speed)
-                self.frame += 1
-            pygame.display.update()
+            done = True
 
-            # cache frames
-            if self.cache_frames:
-                filename = "images/{}_{}.JPG"
-                pygame.image.save(self.display, filename.format(self.rnd,self.frame))
+        # game frames
+        if self.current_player == self.n-1:  
+            if self.render_game: 
+                self.render()
+                self.fps_clock.tick(self.speed)
+            self.frame += 1
+        pygame.display.update()
 
-            # update current player
-            self.current_player += 1
-            if self.current_player >= self.n:
-                self.current_player = 0
+        # cache frames
+        if self.cache_frames:
+            if not os.path.exists("images/game_{}".format(self.id)):
+                os.makedirs("images/game_{}".format(self.id))
+            
+            filename = "images/game_{}/{}.JPG"
+            pygame.image.save(self.display, filename.format(self.id, self.frame))
+
+        # update current player
+        self.current_player += 1
+        if self.current_player >= self.n:
+            self.current_player = 0
 
         return state, reward, done, {}
 
@@ -316,16 +297,16 @@ def keyboard_input(game):
             if event.key == K_ESCAPE:
                 shutdown()
 
-    action = 1
+    action = 0
 
     i = game.current_player
 
     keys = pygame.key.get_pressed()
 
     if keys[game.players[i].left_key]:
-        action = 2
+        action = 1
     if keys[game.players[i].right_key]:
-        action = 3
+        action = 2
 
     return action
 
@@ -341,16 +322,8 @@ def main(argv):
     
     obs = game.reset()
 
-    # print(obs.shape)
-    # print(OBS_HEIGHT)
-    # print(OBS_WIDTH)
     # game
     while True:
-        # print(np.max(obs))
-        # print(np.min(obs))
-        # plt.imshow(np.resize(obs, (OBS_HEIGHT, OBS_WIDTH)), cmap="gray") 
-        # plt.show()
-
         if done:
             for (i,p) in enumerate(game.players):
                 if p.active == True:
@@ -364,7 +337,6 @@ def main(argv):
             # step
             obs, reward, done, info = game.step(action)
             
-            print("round ", game.rnd)
             print("player: %s" % COLORS_str[i])
             print("     reward: ", reward)
             print("     action: ", action)
